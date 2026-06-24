@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { likeName, unlikeName } from "./actions";
 import type { BabyName, Like } from "./page";
@@ -125,18 +125,17 @@ export default function PrenomsClient({
     return new Set([...aLikes].filter((id) => bLikes.has(id)));
   }, [likes]);
 
-  const prevMatchIdsRef = useState(() => new Set<number>())[0];
+  const prevMatchIdsRef = useRef(new Set<number>());
   useEffect(() => {
     if (!partner) return;
     for (const id of matchIds) {
-      if (!prevMatchIdsRef.has(id)) {
+      if (!prevMatchIdsRef.current.has(id)) {
         const matched = names.find((n) => n.id === id);
         if (matched) setNewMatch(matched);
       }
     }
-    prevMatchIdsRef.clear();
-    matchIds.forEach((id) => prevMatchIdsRef.add(id));
-  }, [matchIds, names, partner, prevMatchIdsRef]);
+    prevMatchIdsRef.current = new Set(matchIds);
+  }, [matchIds, names, partner]);
 
   const myLikedIds = useMemo(
     () => new Set(likes.filter((l) => l.partner_id === partner).map((l) => l.name_id)),
@@ -178,9 +177,11 @@ export default function PrenomsClient({
 
   const handleLike = useCallback(async () => {
     if (!current || !partner) return;
+    // Optimistic update — don't wait for server or realtime
+    setLikes((prev) => [...prev, { partner_id: partner, name_id: current.id }]);
     setAnimating("like");
-    await likeName(partner, current.id);
     setTimeout(() => setAnimating(null), 300);
+    likeName(partner, current.id);
   }, [current, partner]);
 
   const handleSkip = useCallback(() => {
@@ -194,7 +195,8 @@ export default function PrenomsClient({
 
   const handleUnlike = useCallback(async (nameId: number) => {
     if (!partner) return;
-    await unlikeName(partner, nameId);
+    setLikes((prev) => prev.filter((l) => !(l.partner_id === partner && l.name_id === nameId)));
+    unlikeName(partner, nameId);
   }, [partner]);
 
   // Partner selection screen
