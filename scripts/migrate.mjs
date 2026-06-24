@@ -53,7 +53,7 @@ async function main() {
     console.log(`  apply ${file}`);
     const sql = readFileSync(join(migrationsDir, file), 'utf8');
     await query(sql);
-    await query(`insert into schema_migrations (name) values ('${file.replace(/'/g, "''")}')`)
+    await query(`insert into schema_migrations (name) values ('${file.replace(/'/g, "''")}') on conflict do nothing`)
     ran++;
   }
 
