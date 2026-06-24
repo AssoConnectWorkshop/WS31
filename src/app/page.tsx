@@ -47,12 +47,20 @@ export default async function Home() {
         <h1 className="text-4xl font-bold">Padawan Armand is ready</h1>
       </div>
 
-      <Link
-        href="/activities"
-        className="px-6 py-3 bg-indigo-600 text-white rounded-full font-semibold shadow-md hover:bg-indigo-700 transition-colors"
-      >
-        📅 Activity Scheduler
-      </Link>
+      <div className="flex gap-3">
+        <Link
+          href="/activities"
+          className="px-6 py-3 bg-indigo-600 text-white rounded-full font-semibold shadow-md hover:bg-indigo-700 transition-colors"
+        >
+          📅 Admin
+        </Link>
+        <Link
+          href="/explore"
+          className="px-6 py-3 bg-rose-500 text-white rounded-full font-semibold shadow-md hover:bg-rose-600 transition-colors"
+        >
+          🤸 Espace membre
+        </Link>
+      </div>
 
       <div className="flex flex-col gap-6 w-full max-w-md">
         <div className="border rounded-xl p-6 flex flex-col gap-3">
