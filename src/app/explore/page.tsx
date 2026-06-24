@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ACTIVITIES,
   INSTRUCTOR_TITLES,
@@ -9,6 +9,7 @@ import {
   type Activity,
   type SessionSlot,
 } from "@/data/activities";
+import { getCustomActivities, subscribeActivities } from "@/lib/activityStore";
 
 type Tab = "explore" | "bookings" | "calendar";
 type TypeFilter = "all" | "récurrent" | "ponctuel";
@@ -44,6 +45,16 @@ export default function ExplorePage() {
     return new Date(d.getFullYear(), d.getMonth(), 1);
   });
 
+  // Activités créées par l'admin (vue admin → vue membre, via localStorage)
+  const [custom, setCustom] = useState<Activity[]>([]);
+  useEffect(() => {
+    const load = () => setCustom(getCustomActivities());
+    load();
+    return subscribeActivities(load);
+  }, []);
+
+  const allActivities = useMemo(() => [...custom, ...ACTIVITIES], [custom]);
+
   const showToast = (msg: string) => {
     setToast(msg);
     window.setTimeout(() => setToast((t) => (t === msg ? null : t)), 2200);
@@ -51,7 +62,7 @@ export default function ExplorePage() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return ACTIVITIES.filter((a) => {
+    return allActivities.filter((a) => {
       if (typeFilter !== "all" && a.type !== typeFilter) return false;
       if (!q) return true;
       return (
@@ -60,7 +71,7 @@ export default function ExplorePage() {
         a.tags.some((t) => t.toLowerCase().includes(q))
       );
     });
-  }, [query, typeFilter]);
+  }, [query, typeFilter, allActivities]);
 
   const bookingCount = bookedSessions.size + subscriptions.size;
 
@@ -155,6 +166,7 @@ export default function ExplorePage() {
             </>
           ) : tab === "bookings" ? (
             <BookingsView
+              activities={allActivities}
               bookedSessions={bookedSessions}
               subscriptions={subscriptions}
               onCancelSession={(aid, sid) => {
@@ -167,6 +179,7 @@ export default function ExplorePage() {
             />
           ) : (
             <CalendarView
+              activities={allActivities}
               bookedSessions={bookedSessions}
               subscriptions={subscriptions}
               calMonth={calMonth}
@@ -247,15 +260,19 @@ function ActivityCard({ activity: a, onLearnMore }: { activity: Activity; onLear
   const ratio = a.totalSpots ? a.registered / a.totalSpots : 0;
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-      {/* Image placeholder */}
+      {/* Image / vignette */}
       <div
-        className="h-32 w-full relative flex items-end"
-        style={{ background: `linear-gradient(135deg, ${a.accentColor}cc 0%, ${a.accentColor}44 100%)` }}
+        className="h-32 w-full relative flex items-end bg-cover bg-center"
+        style={a.image
+          ? { backgroundImage: `url(${a.image})` }
+          : { background: `linear-gradient(135deg, ${a.accentColor}cc 0%, ${a.accentColor}44 100%)` }}
       >
-        <div className="absolute inset-0 flex items-center justify-center text-5xl opacity-20 select-none">
-          {a.type === "récurrent" ? "🔄" : "⚡"}
-        </div>
-        <div className="relative px-4 pb-3 pt-6 w-full bg-gradient-to-t from-black/30 to-transparent">
+        {!a.image && (
+          <div className="absolute inset-0 flex items-center justify-center text-5xl opacity-20 select-none">
+            {a.type === "récurrent" ? "🔄" : "⚡"}
+          </div>
+        )}
+        <div className="relative px-4 pb-3 pt-6 w-full bg-gradient-to-t from-black/40 to-transparent">
           <h3 className="font-bold text-white text-[16px] leading-tight drop-shadow">{a.name}</h3>
           <p className="text-white/80 text-xs mt-0.5">{a.schedule} · {a.time}</p>
         </div>
@@ -309,7 +326,7 @@ function ActivityCard({ activity: a, onLearnMore }: { activity: Activity; onLear
 }
 
 /* ── Image carousel ── */
-function ImageCarousel({ color }: { color: string }) {
+function ImageCarousel({ color, image }: { color: string; image?: string }) {
   const [idx, setIdx] = useState(0);
   const slides = [
     { emoji: "🏃", label: "Séance en cours" },
@@ -325,11 +342,17 @@ function ImageCarousel({ color }: { color: string }) {
         {slides.map((s, i) => (
           <div
             key={i}
-            className="min-w-full h-full flex flex-col items-center justify-center gap-2"
-            style={{ background: `linear-gradient(135deg, ${color}bb 0%, ${color}33 100%)` }}
+            className="min-w-full h-full flex flex-col items-center justify-center gap-2 bg-cover bg-center"
+            style={i === 0 && image
+              ? { backgroundImage: `url(${image})` }
+              : { background: `linear-gradient(135deg, ${color}bb 0%, ${color}33 100%)` }}
           >
-            <span className="text-6xl opacity-60">{s.emoji}</span>
-            <span className="text-white/70 text-xs font-medium">{s.label}</span>
+            {!(i === 0 && image) && (
+              <>
+                <span className="text-6xl opacity-60">{s.emoji}</span>
+                <span className="text-white/70 text-xs font-medium">{s.label}</span>
+              </>
+            )}
           </div>
         ))}
       </div>
@@ -379,7 +402,7 @@ function DetailSheet({ activity: a, bookedSessions, subscribed, onBookSession, o
       >
         {/* Image carousel */}
         <div className="shrink-0 relative">
-          <ImageCarousel color={a.accentColor} />
+          <ImageCarousel color={a.accentColor} image={a.image} />
           <button onClick={onClose}
             className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/30 flex items-center justify-center text-white text-lg z-10">
             ✕
@@ -608,7 +631,8 @@ function Fact({ icon, label, value }: { icon: string; label: string; value: stri
 }
 
 /* ── Calendar view ── */
-function CalendarView({ bookedSessions, subscriptions, calMonth, setCalMonth, onSelectActivity }: {
+function CalendarView({ activities, bookedSessions, subscriptions, calMonth, setCalMonth, onSelectActivity }: {
+  activities: Activity[];
   bookedSessions: Set<string>;
   subscriptions: Set<number>;
   calMonth: Date;
@@ -617,15 +641,21 @@ function CalendarView({ bookedSessions, subscriptions, calMonth, setCalMonth, on
 }) {
   const year = calMonth.getFullYear();
   const month = calMonth.getMonth();
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
 
   const navigate = (dir: number) => {
     setCalMonth(new Date(year, month + dir, 1));
   };
 
-  // Build day -> activities map using upcoming sessions
+  const calActivities = useMemo(
+    () => activities.filter((a) => typeFilter === "all" || a.type === typeFilter),
+    [activities, typeFilter]
+  );
+
+  // Build day -> {activity, spotsLeft} map using upcoming sessions
   const dayMap = useMemo(() => {
-    const map: Record<number, Activity[]> = {};
-    for (const a of ACTIVITIES) {
+    const map: Record<number, { activity: Activity; spotsLeft: number }[]> = {};
+    for (const a of calActivities) {
       const sessions = getUpcomingSessions(a);
       for (const s of sessions) {
         // parse session label like "Lun. 30 juin" or "Mar. 1 juil."
@@ -645,12 +675,12 @@ function CalendarView({ bookedSessions, subscriptions, calMonth, setCalMonth, on
           }
         }
         if (day > 0 && sessionMonth === month) {
-          (map[day] ||= []).push(a);
+          (map[day] ||= []).push({ activity: a, spotsLeft: s.spotsLeft });
         }
       }
     }
     return map;
-  }, [month]);
+  }, [calActivities, month]);
 
   // Calendar grid
   const firstDay = new Date(year, month, 1);
@@ -670,10 +700,29 @@ function CalendarView({ bookedSessions, subscriptions, calMonth, setCalMonth, on
   return (
     <div>
       {/* Month nav */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-3">
         <button onClick={() => navigate(-1)} className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-gray-600">‹</button>
         <span className="font-bold text-base">{MONTHS_FR[month]} {year}</span>
         <button onClick={() => navigate(1)} className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-gray-600">›</button>
+      </div>
+
+      {/* Type filter */}
+      <div className="flex items-center gap-2 mb-4 overflow-x-auto no-scrollbar pb-1">
+        {([
+          ["all", "Tout"],
+          ["récurrent", "Cours réguliers"],
+          ["ponctuel", "À la séance"],
+        ] as [TypeFilter, string][]).map(([val, label]) => (
+          <button
+            key={val}
+            onClick={() => setTypeFilter(val)}
+            className={`shrink-0 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+              typeFilter === val ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {/* Day headers */}
@@ -686,8 +735,8 @@ function CalendarView({ bookedSessions, subscriptions, calMonth, setCalMonth, on
       {/* Grid */}
       <div className="grid grid-cols-7 gap-y-1">
         {cells.map((d, i) => {
-          const activities = d ? (dayMap[d] || []) : [];
-          const hasBooking = d ? activities.some((a) => {
+          const dayActs = d ? (dayMap[d] || []) : [];
+          const hasBooking = d ? dayActs.some(({ activity: a }) => {
             if (subscriptions.has(a.id)) return true;
             const sessions = getUpcomingSessions(a);
             return sessions.some((s) => bookedSessions.has(sessionKey(a.id, s.id)));
@@ -702,9 +751,9 @@ function CalendarView({ bookedSessions, subscriptions, calMonth, setCalMonth, on
                     {d}
                   </div>
                   <div className="flex gap-0.5 flex-wrap justify-center max-w-[36px]">
-                    {activities.slice(0, 3).map((a) => (
+                    {dayActs.slice(0, 3).map(({ activity: a }, j) => (
                       <button
-                        key={a.id}
+                        key={`${a.id}-${j}`}
                         onClick={() => onSelectActivity(a)}
                         className="w-1.5 h-1.5 rounded-full"
                         style={{ backgroundColor: a.accentColor }}
@@ -735,14 +784,15 @@ function CalendarView({ bookedSessions, subscriptions, calMonth, setCalMonth, on
                     <span className="text-lg font-extrabold text-gray-700">{day}</span>
                   </div>
                   <div className="flex-1 flex flex-wrap gap-1.5">
-                    {acts.map((a) => (
+                    {acts.map(({ activity: a, spotsLeft }, j) => (
                       <button
-                        key={a.id}
+                        key={`${a.id}-${j}`}
                         onClick={() => onSelectActivity(a)}
-                        className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                        className="text-[11px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1"
                         style={{ backgroundColor: `${a.accentColor}22`, color: a.accentColor }}
                       >
                         {a.name}
+                        <span className="opacity-70">· {spotsLeft <= 0 ? "complet" : `${spotsLeft} pl.`}</span>
                       </button>
                     ))}
                   </div>
@@ -756,17 +806,18 @@ function CalendarView({ bookedSessions, subscriptions, calMonth, setCalMonth, on
 }
 
 /* ── Bookings view ── */
-function BookingsView({ bookedSessions, subscriptions, onCancelSession, onCancelSub, onExplore }: {
+function BookingsView({ activities, bookedSessions, subscriptions, onCancelSession, onCancelSub, onExplore }: {
+  activities: Activity[];
   bookedSessions: Set<string>;
   subscriptions: Set<number>;
   onCancelSession: (aid: number, sid: number) => void;
   onCancelSub: (aid: number) => void;
   onExplore: () => void;
 }) {
-  const subList = ACTIVITIES.filter((a) => subscriptions.has(a.id));
+  const subList = activities.filter((a) => subscriptions.has(a.id));
   const sessionList = Array.from(bookedSessions).map((key) => {
     const [aid, sid] = key.split(":").map(Number);
-    const activity = ACTIVITIES.find((a) => a.id === aid);
+    const activity = activities.find((a) => a.id === aid);
     if (!activity) return null;
     const slot = getUpcomingSessions(activity).find((s) => s.id === sid);
     return activity && slot ? { activity, slot } : null;

@@ -10,6 +10,7 @@ export interface Activity {
   location: string; registered: number; totalSpots: number;
   sessions: number | null; price: string; full: boolean;
   description: string; yearContent: string; accentColor: string; tags: string[];
+  image?: string;
 }
 
 // ─── Session generator (ponctuel) ────────────────────────────────────────────

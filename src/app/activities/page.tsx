@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { addCustomActivity } from "@/lib/activityStore";
+import type { Activity as MemberActivity } from "@/data/activities";
 
 /* ----------------------------------------------------------------------------
  * Types
@@ -27,6 +29,10 @@ interface Activity {
   bookingOpens: number;
   cancellationDeadline: number;
   allowRecurring: boolean;
+  image?: string;
+  instructor?: string;
+  location?: string;
+  description?: string;
 }
 
 interface SessionT {
@@ -51,18 +57,36 @@ const DAYS: DayKey[] = [
   "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
 ];
 const DAY_SHORT: Record<DayKey, string> = {
-  monday: "Mon", tuesday: "Tue", wednesday: "Wed", thursday: "Thu",
-  friday: "Fri", saturday: "Sat", sunday: "Sun",
+  monday: "Lun", tuesday: "Mar", wednesday: "Mer", thursday: "Jeu",
+  friday: "Ven", saturday: "Sam", sunday: "Dim",
+};
+const DAY_FULL_FR: Record<DayKey, string> = {
+  monday: "lundi", tuesday: "mardi", wednesday: "mercredi", thursday: "jeudi",
+  friday: "vendredi", saturday: "samedi", sunday: "dimanche",
 };
 const DAY_JS: Record<DayKey, number> = {
   sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
   thursday: 4, friday: 5, saturday: 6,
 };
 const MONTHS = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  "janv.", "févr.", "mars", "avr.", "mai", "juin",
+  "juil.", "août", "sept.", "oct.", "nov.", "déc.",
+];
+const MONTHS_FULL = [
+  "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
+  "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
 ];
 const HOURS = Array.from({ length: 13 }, (_, i) => i + 8); // 08:00 -> 20:00
+
+const TYPE_LABELS: Record<ActivityType, string> = {
+  class: "Cours", court: "Court", field: "Terrain",
+};
+const RECURRENCE_LABELS: Record<Recurrence, string> = {
+  daily: "Quotidien", weekly: "Hebdomadaire", monthly: "Mensuel",
+};
+const TYPE_ACCENT: Record<ActivityType, string> = {
+  class: "#6366f1", court: "#10b981", field: "#f59e0b",
+};
 
 const TYPE_STYLES: Record<ActivityType, { chip: string; block: string; dot: string }> = {
   class: { chip: "bg-indigo-100 text-indigo-700", block: "bg-indigo-100 border-indigo-300 text-indigo-800", dot: "bg-indigo-500" },
@@ -95,7 +119,7 @@ function sameDay(a: Date, b: Date): boolean {
   return dateKey(a) === dateKey(b);
 }
 function fmtDate(d: Date): string {
-  return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 }
 function fmtDateStr(s: string): string {
   if (!s) return "";
@@ -134,7 +158,7 @@ function generateSessions(a: Activity): SessionT[] {
       if (wanted.has(d.getDay())) push(d);
     }
   } else {
-    // monthly: first occurrence of each selected weekday in each month
+    // mensuel : première occurrence de chaque jour sélectionné dans le mois
     let y = start.getFullYear();
     let m = start.getMonth();
     while (y < end.getFullYear() || (y === end.getFullYear() && m <= end.getMonth())) {
@@ -172,7 +196,7 @@ function countSessions(form: FormState): string {
     }
     return String(n);
   }
-  // monthly
+  // mensuel
   const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + 1;
   return String(form.days.length * months);
 }
@@ -182,16 +206,18 @@ function countSessions(form: FormState): string {
  * --------------------------------------------------------------------------*/
 const MOCK_ACTIVITIES: Activity[] = [
   {
-    id: "1", name: "Friday Yoga", type: "class", days: ["friday"],
+    id: "1", name: "Yoga du vendredi", type: "class", days: ["friday"],
     startTime: "10:00", endTime: "11:00", recurrence: "weekly",
     startDate: "2025-09-05", endDate: "2026-06-26", spots: 12, price: 8,
     bookingOpens: 7, cancellationDeadline: 24, allowRecurring: true,
+    instructor: "Marie Dupont", location: "Salle B · 2e étage",
   },
   {
-    id: "2", name: "Tennis Court A", type: "court", days: ["monday", "wednesday", "friday"],
+    id: "2", name: "Court de tennis A", type: "court", days: ["monday", "wednesday", "friday"],
     startTime: "09:00", endTime: "10:00", recurrence: "weekly",
     startDate: "2025-09-01", endDate: "2026-06-30", spots: 4, price: 5,
     bookingOpens: 3, cancellationDeadline: 12, allowRecurring: false,
+    instructor: "Sandrine Brunet", location: "Courts couverts",
   },
 ];
 
@@ -210,7 +236,7 @@ function buildMockRegistrations(sessions: SessionT[], activities: Activity[], to
         const member = MEMBERS[(offset + i) % MEMBERS.length];
         const hh = hashStr(sess.id + member);
         let status: RegStatus;
-        if (isPast) status = hh % 4 === 0 ? "registered" : "checked_in"; // ~75% attended
+        if (isPast) status = hh % 4 === 0 ? "registered" : "checked_in"; // ~75% présents
         else status = hh % 5 === 0 ? "checked_in" : "registered";
         regs.push({
           id: `${sess.id}-${i}`,
@@ -248,13 +274,58 @@ interface FormState {
   bookingOpens: number;
   cancellationDeadline: number;
   allowRecurring: boolean;
+  image: string;
+  instructor: string;
+  location: string;
+  description: string;
   step: "form" | "confirmation";
 }
 const EMPTY_FORM: FormState = {
   name: "", type: "class", days: [], startTime: "", endTime: "",
   recurrence: "weekly", startDate: "", endDate: "", spots: "", price: "",
-  bookingOpens: 7, cancellationDeadline: 24, allowRecurring: false, step: "form",
+  bookingOpens: 7, cancellationDeadline: 24, allowRecurring: false,
+  image: "", instructor: "", location: "", description: "", step: "form",
 };
+
+/* ----------------------------------------------------------------------------
+ * Map a created activity into the member-facing shape (vue membre /explore)
+ * --------------------------------------------------------------------------*/
+function toMemberActivity(a: Activity, sessionCount: number): MemberActivity {
+  const isRecurring = a.allowRecurring;
+  let schedule: string;
+  if (a.recurrence === "daily") schedule = "Tous les jours";
+  else if (a.days.length === 1) schedule = `Tous les ${DAY_FULL_FR[a.days[0]]}s`;
+  else schedule = a.days.map((d) => DAY_SHORT[d]).join(" & ");
+
+  const price = a.price > 0
+    ? `${a.price}€ / ${isRecurring ? "mois" : "séance"}`
+    : "Gratuit";
+
+  return {
+    id: Number(a.id.slice(-9)) || Math.floor(hashStr(a.id) % 1_000_000) + 1000,
+    name: a.name,
+    type: isRecurring ? "récurrent" : "ponctuel",
+    schedule,
+    time: a.startTime && a.endTime ? `${a.startTime} – ${a.endTime}` : a.startTime,
+    nextDate: "",
+    instructor: a.instructor?.trim() || "Intervenant·e",
+    instructorBio: a.instructor?.trim()
+      ? `${a.instructor} encadre cette activité.`
+      : "Intervenant·e communiqué·e prochainement.",
+    instructorCerts: [],
+    location: a.location?.trim() || "À préciser",
+    registered: 0,
+    totalSpots: a.spots,
+    sessions: isRecurring ? sessionCount : null,
+    price,
+    full: false,
+    description: a.description?.trim() || "Description communiquée prochainement.",
+    yearContent: a.description?.trim() || "Programme communiqué à l'inscription.",
+    accentColor: TYPE_ACCENT[a.type],
+    tags: [TYPE_LABELS[a.type]],
+    image: a.image || undefined,
+  };
+}
 
 /* ----------------------------------------------------------------------------
  * Icons
@@ -313,15 +384,15 @@ export default function ActivityScheduler() {
 
   const handleFinish = () => {
     const e: Record<string, string> = {};
-    if (!form.name.trim()) e.name = "Activity name is required";
-    if (form.recurrence !== "daily" && form.days.length === 0) e.days = "Select at least one day";
-    if (!form.startTime) e.startTime = "Start time is required";
-    if (!form.endTime) e.endTime = "End time is required";
-    if (form.startTime && form.endTime && form.endTime <= form.startTime) e.endTime = "End must be after start";
-    if (!form.startDate) e.startDate = "Start date is required";
-    if (!form.endDate) e.endDate = "End date is required";
-    if (form.startDate && form.endDate && parseDate(form.endDate) < parseDate(form.startDate)) e.endDate = "End must be after start";
-    if (!form.spots || Number(form.spots) <= 0) e.spots = "Spots per session is required";
+    if (!form.name.trim()) e.name = "Le nom de l'activité est requis";
+    if (form.recurrence !== "daily" && form.days.length === 0) e.days = "Sélectionnez au moins un jour";
+    if (!form.startTime) e.startTime = "L'heure de début est requise";
+    if (!form.endTime) e.endTime = "L'heure de fin est requise";
+    if (form.startTime && form.endTime && form.endTime <= form.startTime) e.endTime = "La fin doit suivre le début";
+    if (!form.startDate) e.startDate = "La date de début est requise";
+    if (!form.endDate) e.endDate = "La date de fin est requise";
+    if (form.startDate && form.endDate && parseDate(form.endDate) < parseDate(form.startDate)) e.endDate = "La fin doit suivre le début";
+    if (!form.spots || Number(form.spots) <= 0) e.spots = "Le nombre de places est requis";
     setErrors(e);
     if (Object.keys(e).length > 0) return;
     commitActivity();
@@ -344,8 +415,15 @@ export default function ActivityScheduler() {
       bookingOpens: form.bookingOpens,
       cancellationDeadline: form.cancellationDeadline,
       allowRecurring: form.allowRecurring,
+      image: form.image || undefined,
+      instructor: form.instructor.trim() || undefined,
+      location: form.location.trim() || undefined,
+      description: form.description.trim() || undefined,
     };
     setActivities((prev) => prev.some((x) => x.id === a.id) ? prev : [...prev, a]);
+    // Publication dans la vue membre (avec l'image choisie)
+    const count = Number(countSessions(form)) || 0;
+    addCustomActivity(toMemberActivity(a, count));
     return a;
   };
 
@@ -368,7 +446,7 @@ export default function ActivityScheduler() {
       {/* Top nav */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3">
-          <span className="font-bold text-lg mr-auto">🏛️ NPO Admin</span>
+          <span className="font-bold text-lg mr-auto">🏛️ Admin asso</span>
           <nav className="flex gap-1 bg-gray-100 rounded-lg p-1">
             <button
               onClick={() => setView("list")}
@@ -411,7 +489,6 @@ export default function ActivityScheduler() {
           activities={activities}
           sessions={sessions}
           registrations={registrations}
-          actById={actById}
           spotsLeft={spotsLeft}
           onSelectSession={setSelectedSessionId}
         />
@@ -467,34 +544,48 @@ interface CreateProps {
 function CreateView(p: CreateProps) {
   const { form } = p;
 
+  const onImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => p.onUpdate({ image: typeof reader.result === "string" ? reader.result : "" });
+    reader.readAsDataURL(file);
+  };
+
   if (form.step === "confirmation") {
     return (
       <div className="max-w-[560px] mx-auto px-4 py-10">
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-7">
           <div className="flex items-center gap-2 text-emerald-600 font-semibold text-lg mb-4">
-            ✅ Activity created
+            ✅ Activité créée
           </div>
-          <h2 className="text-2xl font-bold">{form.name} <span className="text-gray-400 font-normal text-base capitalize">— {form.type}</span></h2>
+          {form.image && (
+            <div
+              className="w-full h-40 rounded-xl bg-cover bg-center mb-4"
+              style={{ backgroundImage: `url(${form.image})` }}
+            />
+          )}
+          <h2 className="text-2xl font-bold">{form.name} <span className="text-gray-400 font-normal text-base">— {TYPE_LABELS[form.type]}</span></h2>
           <div className="mt-5 space-y-2.5 text-sm">
-            <p>📅 Every {form.recurrence === "daily" ? "day" : form.days.map((d) => DAY_SHORT[d]).join(", ")} at {form.startTime}–{form.endTime}</p>
-            <p>🔁 <span className="capitalize">{form.recurrence}</span> · {fmtDateStr(form.startDate)} → {fmtDateStr(form.endDate)}</p>
-            <p>📊 {countSessions(form)} sessions · {form.spots} spots each</p>
-            <p>💶 {form.price && Number(form.price) > 0 ? `${form.price}€ per session` : "Free"}</p>
-            <p>⏱ Booking opens {form.bookingOpens} days before · Cancellation up to {form.cancellationDeadline}h before</p>
-            <p>♻️ Recurring subscriptions: {form.allowRecurring ? "Yes" : "No"}</p>
+            <p>📅 Chaque {form.recurrence === "daily" ? "jour" : form.days.map((d) => DAY_SHORT[d]).join(", ")} de {form.startTime} à {form.endTime}</p>
+            <p>🔁 {RECURRENCE_LABELS[form.recurrence]} · {fmtDateStr(form.startDate)} → {fmtDateStr(form.endDate)}</p>
+            <p>📊 {countSessions(form)} séances · {form.spots} places chacune</p>
+            <p>💶 {form.price && Number(form.price) > 0 ? `${form.price}€ par séance` : "Gratuit"}</p>
+            <p>⏱ Réservations ouvertes {form.bookingOpens} jours avant · Annulation jusqu&apos;à {form.cancellationDeadline}h avant</p>
+            <p>♻️ Abonnements récurrents : {form.allowRecurring ? "Oui" : "Non"}</p>
           </div>
           <div className="mt-7 flex gap-3">
             <button
               onClick={p.onReset}
               className="px-4 py-2.5 rounded-lg border border-gray-300 text-sm font-medium hover:bg-gray-50"
             >
-              Create another activity
+              Créer une autre activité
             </button>
             <button
               onClick={p.onGoCalendar}
               className="px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
             >
-              Go to calendar →
+              Aller à la liste →
             </button>
           </div>
         </div>
@@ -509,35 +600,81 @@ function CreateView(p: CreateProps) {
   return (
     <div className="max-w-[560px] mx-auto px-4 py-8">
       <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-7">
-        <h2 className="text-xl font-bold mb-1">Create an activity</h2>
-        <p className="text-sm text-gray-400 mb-6">Configure a recurring activity and generate every session at once.</p>
+        <h2 className="text-xl font-bold mb-1">Créer une activité</h2>
+        <p className="text-sm text-gray-400 mb-6">Configurez une activité récurrente et générez toutes les séances d&apos;un coup.</p>
 
         {/* Basics */}
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Activity name</label>
+            <label className="block text-sm font-medium mb-1">Nom de l&apos;activité</label>
             <input
               className={inputCls("name")}
-              placeholder="e.g. Friday Yoga, Tennis Court A"
+              placeholder="ex. Yoga du vendredi, Court de tennis A"
               value={form.name}
               onChange={(e) => p.onUpdate({ name: e.target.value })}
             />
             {err("name") && <p className="text-xs text-red-500 mt-1">{err("name")}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Activity type</label>
+            <label className="block text-sm font-medium mb-1">Type d&apos;activité</label>
             <select className={inputCls("type")} value={form.type} onChange={(e) => p.onUpdate({ type: e.target.value as ActivityType })}>
-              <option value="class">Class</option>
+              <option value="class">Cours</option>
               <option value="court">Court</option>
-              <option value="field">Field</option>
+              <option value="field">Terrain</option>
             </select>
           </div>
         </div>
 
+        {/* Image */}
+        <h3 className="text-sm font-semibold text-gray-700 mt-6 mb-2">Image (vignette membre)</h3>
+        <div className="flex items-center gap-4">
+          <div
+            className="w-24 h-24 rounded-xl border border-dashed border-gray-300 bg-gray-50 bg-cover bg-center flex items-center justify-center text-2xl text-gray-300 shrink-0"
+            style={form.image ? { backgroundImage: `url(${form.image})` } : undefined}
+          >
+            {!form.image && "🖼️"}
+          </div>
+          <div className="flex-1">
+            <label className="inline-block px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium cursor-pointer hover:bg-gray-50">
+              Choisir une image
+              <input type="file" accept="image/*" className="hidden" onChange={onImageChange} />
+            </label>
+            {form.image && (
+              <button
+                type="button"
+                onClick={() => p.onUpdate({ image: "" })}
+                className="ml-2 text-sm text-rose-500 font-medium"
+              >
+                Retirer
+              </button>
+            )}
+            <p className="text-xs text-gray-400 mt-1.5">Affichée en vignette pour les membres dans l&apos;espace membre.</p>
+          </div>
+        </div>
+
+        {/* Infos membre */}
+        <h3 className="text-sm font-semibold text-gray-700 mt-6 mb-2">Informations membres</h3>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">Intervenant·e</label>
+              <input className={inputCls("instructor")} placeholder="ex. Marie Dupont" value={form.instructor} onChange={(e) => p.onUpdate({ instructor: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Lieu</label>
+              <input className={inputCls("location")} placeholder="ex. Salle B · 2e étage" value={form.location} onChange={(e) => p.onUpdate({ location: e.target.value })} />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Description</label>
+            <textarea className={inputCls("description")} rows={2} placeholder="Quelques mots sur l'activité…" value={form.description} onChange={(e) => p.onUpdate({ description: e.target.value })} />
+          </div>
+        </div>
+
         {/* Schedule */}
-        <h3 className="text-sm font-semibold text-gray-700 mt-6 mb-2">Schedule</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mt-6 mb-2">Horaires</h3>
         <div>
-          <label className="block text-sm font-medium mb-1">Day(s) of week</label>
+          <label className="block text-sm font-medium mb-1">Jour(s) de la semaine</label>
           <div className="flex flex-wrap gap-1.5">
             {DAYS.map((d) => (
               <button
@@ -558,82 +695,82 @@ function CreateView(p: CreateProps) {
 
         <div className="grid grid-cols-2 gap-3 mt-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Start time</label>
+            <label className="block text-sm font-medium mb-1">Heure de début</label>
             <input type="time" className={inputCls("startTime")} value={form.startTime} onChange={(e) => p.onUpdate({ startTime: e.target.value })} />
             {err("startTime") && <p className="text-xs text-red-500 mt-1">{err("startTime")}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">End time</label>
+            <label className="block text-sm font-medium mb-1">Heure de fin</label>
             <input type="time" className={inputCls("endTime")} value={form.endTime} onChange={(e) => p.onUpdate({ endTime: e.target.value })} />
             {err("endTime") && <p className="text-xs text-red-500 mt-1">{err("endTime")}</p>}
           </div>
         </div>
 
         <div className="mt-4">
-          <label className="block text-sm font-medium mb-1">Recurrence</label>
+          <label className="block text-sm font-medium mb-1">Récurrence</label>
           <select className={inputCls("recurrence")} value={form.recurrence} onChange={(e) => p.onUpdate({ recurrence: e.target.value as Recurrence })}>
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-            <option value="monthly">Monthly</option>
+            <option value="daily">Quotidienne</option>
+            <option value="weekly">Hebdomadaire</option>
+            <option value="monthly">Mensuelle</option>
           </select>
         </div>
 
         {/* Planning period */}
-        <h3 className="text-sm font-semibold text-gray-700 mt-6 mb-2">Planning period</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mt-6 mb-2">Période de planification</h3>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm font-medium mb-1">Start date</label>
+            <label className="block text-sm font-medium mb-1">Date de début</label>
             <input type="date" className={inputCls("startDate")} value={form.startDate} onChange={(e) => p.onUpdate({ startDate: e.target.value })} />
             {err("startDate") && <p className="text-xs text-red-500 mt-1">{err("startDate")}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">End date</label>
+            <label className="block text-sm font-medium mb-1">Date de fin</label>
             <input type="date" className={inputCls("endDate")} value={form.endDate} onChange={(e) => p.onUpdate({ endDate: e.target.value })} />
             {err("endDate") && <p className="text-xs text-red-500 mt-1">{err("endDate")}</p>}
           </div>
         </div>
         <div className="mt-3">
           <span className="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-700 text-sm font-semibold px-3 py-1.5 rounded-full">
-            → {p.sessionCount} sessions will be generated
+            → {p.sessionCount} séances seront générées
           </span>
         </div>
 
         {/* Capacity */}
-        <h3 className="text-sm font-semibold text-gray-700 mt-6 mb-2">Capacity</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mt-6 mb-2">Capacité</h3>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm font-medium mb-1">Spots per session</label>
-            <input type="number" min={1} className={inputCls("spots")} placeholder="e.g. 12" value={form.spots} onChange={(e) => p.onUpdate({ spots: e.target.value })} />
+            <label className="block text-sm font-medium mb-1">Places par séance</label>
+            <input type="number" min={1} className={inputCls("spots")} placeholder="ex. 12" value={form.spots} onChange={(e) => p.onUpdate({ spots: e.target.value })} />
             {err("spots") && <p className="text-xs text-red-500 mt-1">{err("spots")}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Price per session (€)</label>
-            <input type="number" min={0} className={inputCls("price")} placeholder="0 = free" value={form.price} onChange={(e) => p.onUpdate({ price: e.target.value })} />
+            <label className="block text-sm font-medium mb-1">Prix par séance (€)</label>
+            <input type="number" min={0} className={inputCls("price")} placeholder="0 = gratuit" value={form.price} onChange={(e) => p.onUpdate({ price: e.target.value })} />
           </div>
         </div>
 
         {/* Booking rules accordion */}
         <div className="mt-6 border border-gray-200 rounded-lg">
           <button type="button" onClick={p.onToggleRules} className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-gray-700">
-            Booking rules
+            Règles de réservation
             <Chevron open={p.rulesOpen} />
           </button>
           {p.rulesOpen && (
             <div className="px-4 pb-4 space-y-4 border-t border-gray-100 pt-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Booking opens</label>
+                <label className="block text-sm font-medium mb-1">Ouverture des réservations</label>
                 <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" value={form.bookingOpens} onChange={(e) => p.onUpdate({ bookingOpens: Number(e.target.value) })}>
-                  {[1, 3, 7, 14, 30].map((d) => <option key={d} value={d}>{d} days before</option>)}
+                  {[1, 3, 7, 14, 30].map((d) => <option key={d} value={d}>{d} jours avant</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Cancellation deadline</label>
+                <label className="block text-sm font-medium mb-1">Délai d&apos;annulation</label>
                 <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" value={form.cancellationDeadline} onChange={(e) => p.onUpdate({ cancellationDeadline: Number(e.target.value) })}>
-                  {[2, 12, 24, 48, 72].map((h) => <option key={h} value={h}>{h}h before</option>)}
+                  {[2, 12, 24, 48, 72].map((h) => <option key={h} value={h}>{h}h avant</option>)}
                 </select>
               </div>
               <label className="flex items-center justify-between cursor-pointer">
-                <span className="text-sm font-medium">Allow recurring subscriptions</span>
+                <span className="text-sm font-medium">Autoriser les abonnements récurrents</span>
                 <button
                   type="button"
                   onClick={() => p.onUpdate({ allowRecurring: !form.allowRecurring })}
@@ -648,8 +785,8 @@ function CreateView(p: CreateProps) {
 
         {/* Actions */}
         <div className="flex justify-end gap-3 mt-7">
-          <button onClick={p.onCancel} className="px-5 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100">Cancel</button>
-          <button onClick={p.onFinish} className="px-5 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700">Finish</button>
+          <button onClick={p.onCancel} className="px-5 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100">Annuler</button>
+          <button onClick={p.onFinish} className="px-5 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700">Valider</button>
         </div>
       </div>
     </div>
@@ -663,7 +800,6 @@ interface ListViewProps {
   activities: Activity[];
   sessions: SessionT[];
   registrations: Registration[];
-  actById: Record<string, Activity>;
   spotsLeft: (s: SessionT) => number;
   onSelectSession: (id: string) => void;
 }
@@ -675,7 +811,7 @@ function ListView(p: ListViewProps) {
     <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
       {p.activities.length === 0 && (
         <div className="text-center text-gray-400 py-24 text-sm">
-          No activities yet. Click &ldquo;Créer une activité&rdquo; to get started.
+          Aucune activité pour le moment. Cliquez sur &ldquo;Créer une activité&rdquo; pour commencer.
         </div>
       )}
       {p.activities.map((a) => {
@@ -693,30 +829,38 @@ function ListView(p: ListViewProps) {
           <div key={a.id} className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
             {/* Activity header */}
             <div className={`px-5 py-4 flex items-start justify-between border-b border-gray-100 ${TYPE_STYLES[a.type].block}`}>
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`w-2.5 h-2.5 rounded-full ${TYPE_STYLES[a.type].dot}`} />
-                  <h2 className="font-bold text-lg">{a.name}</h2>
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${TYPE_STYLES[a.type].chip}`}>{a.type}</span>
+              <div className="flex items-start gap-3">
+                {a.image && (
+                  <div
+                    className="w-14 h-14 rounded-xl bg-cover bg-center shrink-0 border border-white/40"
+                    style={{ backgroundImage: `url(${a.image})` }}
+                  />
+                )}
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`w-2.5 h-2.5 rounded-full ${TYPE_STYLES[a.type].dot}`} />
+                    <h2 className="font-bold text-lg">{a.name}</h2>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${TYPE_STYLES[a.type].chip}`}>{TYPE_LABELS[a.type]}</span>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    {a.days.map((d) => DAY_SHORT[d]).join(", ")}{a.days.length ? " · " : ""}{a.startTime}–{a.endTime} · {RECURRENCE_LABELS[a.recurrence]}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {fmtDateStr(a.startDate)} → {fmtDateStr(a.endDate)} · {a.spots} places · {a.price > 0 ? `${a.price}€` : "Gratuit"}
+                  </p>
                 </div>
-                <p className="text-sm text-gray-600">
-                  {a.days.map((d) => DAY_SHORT[d]).join(", ")} · {a.startTime}–{a.endTime} · {a.recurrence}
-                </p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {fmtDateStr(a.startDate)} → {fmtDateStr(a.endDate)} · {a.spots} spots · {a.price > 0 ? `${a.price}€` : "Free"}
-                </p>
               </div>
               <div className="text-right shrink-0 ml-4">
                 <div className="text-2xl font-extrabold text-gray-700">{actSessions.length}</div>
-                <div className="text-xs text-gray-400">sessions</div>
-                <div className="text-xs text-gray-500 mt-1">{regCount} registrations</div>
+                <div className="text-xs text-gray-400">séances</div>
+                <div className="text-xs text-gray-500 mt-1">{regCount} inscriptions</div>
               </div>
             </div>
 
             {/* Upcoming sessions */}
             {upcoming.length > 0 && (
               <div className="px-5 py-4">
-                <h3 className="text-xs font-bold text-gray-400 uppercase mb-2">Upcoming sessions</h3>
+                <h3 className="text-xs font-bold text-gray-400 uppercase mb-2">Prochaines séances</h3>
                 <div className="space-y-1.5">
                   {upcoming.map((s) => {
                     const left = p.spotsLeft(s);
@@ -738,7 +882,7 @@ function ListView(p: ListViewProps) {
                         <div className="flex items-center gap-3">
                           <div className="text-right">
                             <p className="text-sm font-semibold">{regs.length}/{a.spots}</p>
-                            <p className="text-xs text-gray-400">{full ? "Full" : `${left} left`}</p>
+                            <p className="text-xs text-gray-400">{full ? "Complet" : `${left} restantes`}</p>
                           </div>
                           <svg className="w-4 h-4 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
                             <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.17 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
@@ -754,7 +898,7 @@ function ListView(p: ListViewProps) {
             {/* Past sessions summary */}
             {past.length > 0 && (
               <div className="px-5 pb-4 border-t border-gray-100 pt-4">
-                <h3 className="text-xs font-bold text-gray-400 uppercase mb-2">Recent past sessions</h3>
+                <h3 className="text-xs font-bold text-gray-400 uppercase mb-2">Séances passées récentes</h3>
                 <div className="flex gap-2 flex-wrap">
                   {past.map((s) => {
                     const regs = p.registrations.filter((r) => r.sessionId === s.id && r.status !== "cancelled");
@@ -765,7 +909,7 @@ function ListView(p: ListViewProps) {
                         onClick={() => p.onSelectSession(s.id)}
                         className="flex items-center gap-2 bg-gray-50 hover:bg-gray-100 rounded-lg px-3 py-2 text-xs transition-colors"
                       >
-                        <span className="text-gray-500">{MONTHS[s.date.getMonth()]} {s.date.getDate()}</span>
+                        <span className="text-gray-500">{s.date.getDate()} {MONTHS[s.date.getMonth()]}</span>
                         <span className="font-semibold text-emerald-600">{ci}/{regs.length} ✓</span>
                       </button>
                     );
@@ -775,7 +919,7 @@ function ListView(p: ListViewProps) {
             )}
 
             {upcoming.length === 0 && past.length === 0 && (
-              <div className="px-5 py-4 text-sm text-gray-400">No sessions generated yet.</div>
+              <div className="px-5 py-4 text-sm text-gray-400">Aucune séance générée pour le moment.</div>
             )}
           </div>
         );
@@ -812,18 +956,18 @@ function CalendarView(p: CalendarProps) {
   };
 
   const label = p.calendarMode === "week"
-    ? `${MONTHS[weekStart.getMonth()]} ${weekStart.getDate()} – ${MONTHS[weekDays[6].getMonth()]} ${weekDays[6].getDate()}, ${weekDays[6].getFullYear()}`
-    : `${["January","February","March","April","May","June","July","August","September","October","November","December"][p.currentDate.getMonth()]} ${p.currentDate.getFullYear()}`;
+    ? `${weekStart.getDate()} ${MONTHS[weekStart.getMonth()]} – ${weekDays[6].getDate()} ${MONTHS[weekDays[6].getMonth()]} ${weekDays[6].getFullYear()}`
+    : `${MONTHS_FULL[p.currentDate.getMonth()]} ${p.currentDate.getFullYear()}`;
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-5">
       {/* Controls */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-2">
-          <button onClick={() => navigate(-1)} className="px-3 py-1.5 rounded-lg border border-gray-300 text-sm hover:bg-gray-100">‹ Previous</button>
+          <button onClick={() => navigate(-1)} className="px-3 py-1.5 rounded-lg border border-gray-300 text-sm hover:bg-gray-100">‹ Précédent</button>
           <span className="font-semibold text-sm min-w-[200px] text-center">{label}</span>
-          <button onClick={() => navigate(1)} className="px-3 py-1.5 rounded-lg border border-gray-300 text-sm hover:bg-gray-100">Next ›</button>
-          <button onClick={() => p.setCurrentDate(new Date())} className="px-3 py-1.5 rounded-lg text-sm text-indigo-600 hover:bg-indigo-50">Today</button>
+          <button onClick={() => navigate(1)} className="px-3 py-1.5 rounded-lg border border-gray-300 text-sm hover:bg-gray-100">Suivant ›</button>
+          <button onClick={() => p.setCurrentDate(new Date())} className="px-3 py-1.5 rounded-lg text-sm text-indigo-600 hover:bg-indigo-50">Aujourd&apos;hui</button>
         </div>
         <div className="flex items-center gap-3">
           <select
@@ -831,17 +975,17 @@ function CalendarView(p: CalendarProps) {
             onChange={(e) => p.setActivityFilter(e.target.value)}
             className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
           >
-            <option value="all">All activities</option>
+            <option value="all">Toutes les activités</option>
             {p.activities.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
           <div className="flex bg-gray-100 rounded-lg p-1">
-            {(["week", "month"] as const).map((m) => (
+            {([["week", "Semaine"], ["month", "Mois"]] as [("week" | "month"), string][]).map(([m, lbl]) => (
               <button
                 key={m}
                 onClick={() => p.setCalendarMode(m)}
-                className={`px-3 py-1 rounded-md text-sm font-medium capitalize ${p.calendarMode === m ? "bg-white shadow text-indigo-600" : "text-gray-500"}`}
+                className={`px-3 py-1 rounded-md text-sm font-medium ${p.calendarMode === m ? "bg-white shadow text-indigo-600" : "text-gray-500"}`}
               >
-                {m}
+                {lbl}
               </button>
             ))}
           </div>
@@ -856,7 +1000,7 @@ function CalendarView(p: CalendarProps) {
       <div className="flex gap-4 mt-4 text-xs text-gray-500">
         {(["class", "court", "field"] as ActivityType[]).map((t) => (
           <span key={t} className="flex items-center gap-1.5">
-            <span className={`w-3 h-3 rounded ${TYPE_STYLES[t].dot}`} /> <span className="capitalize">{t}</span>
+            <span className={`w-3 h-3 rounded ${TYPE_STYLES[t].dot}`} /> <span>{TYPE_LABELS[t]}</span>
           </span>
         ))}
       </div>
@@ -908,8 +1052,8 @@ function WeekGrid(p: CalendarProps & { weekDays: Date[] }) {
                       >
                         <div className="font-semibold truncate">{act.name}</div>
                         {full
-                          ? <span className="inline-block mt-0.5 px-1 rounded bg-gray-300 text-gray-600 text-[10px]">Full</span>
-                          : <div className="opacity-80">{left}/{act.spots} left</div>}
+                          ? <span className="inline-block mt-0.5 px-1 rounded bg-gray-300 text-gray-600 text-[10px]">Complet</span>
+                          : <div className="opacity-80">{left}/{act.spots} places</div>}
                       </button>
                     );
                   })}
@@ -954,18 +1098,19 @@ function MonthGrid(p: CalendarProps) {
               <div className="space-y-0.5">
                 {day.slice(0, 3).map((s) => {
                   const act = p.actById[s.activityId];
+                  const left = p.spotsLeft(s);
                   return (
                     <button
                       key={s.id}
                       onClick={() => p.onSelectSession(s.id)}
                       className={`w-full text-left rounded px-1 py-0.5 text-[10px] truncate ${TYPE_STYLES[act.type].chip}`}
                     >
-                      {act.startTime} {act.name}
+                      {act.startTime} {act.name} · {left <= 0 ? "complet" : `${left} pl.`}
                     </button>
                   );
                 })}
                 {day.length > 3 && (
-                  <button onClick={() => p.onSelectSession(day[3].id)} className="text-[10px] text-indigo-500 px-1">+ {day.length - 3} more</button>
+                  <button onClick={() => p.onSelectSession(day[3].id)} className="text-[10px] text-indigo-500 px-1">+ {day.length - 3} autres</button>
                 )}
               </div>
             </div>
@@ -997,7 +1142,7 @@ function SessionPanel(p: PanelProps) {
   const active = regs.filter((r) => r.status !== "cancelled");
   const left = p.spotsLeft(session);
 
-  // Attendance history: past sessions of same activity
+  // Historique de présence : séances passées de la même activité
   const today = new Date();
   const pastSessions = p.sessions
     .filter((s) => s.activityId === activity.id && s.date < today)
@@ -1029,14 +1174,14 @@ function SessionPanel(p: PanelProps) {
               <p className="text-sm text-gray-500 mt-1">
                 {fmtDate(session.date)} · {activity.startTime}–{activity.endTime}
               </p>
-              <p className="text-sm text-gray-500">{active.length}/{activity.spots} spots filled{left <= 0 ? " · Full" : ""}</p>
+              <p className="text-sm text-gray-500">{active.length}/{activity.spots} places occupées{left <= 0 ? " · Complet" : ""}</p>
             </div>
             <button onClick={p.onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none">✕</button>
           </div>
           {/* Tabs */}
           <div className="flex gap-1 mt-4 bg-gray-100 rounded-lg p-1">
-            <button onClick={() => setTab("reg")} className={`flex-1 py-1.5 rounded-md text-sm font-medium ${tab === "reg" ? "bg-white shadow text-indigo-600" : "text-gray-500"}`}>Registrations</button>
-            <button onClick={() => setTab("history")} className={`flex-1 py-1.5 rounded-md text-sm font-medium ${tab === "history" ? "bg-white shadow text-indigo-600" : "text-gray-500"}`}>Attendance history</button>
+            <button onClick={() => setTab("reg")} className={`flex-1 py-1.5 rounded-md text-sm font-medium ${tab === "reg" ? "bg-white shadow text-indigo-600" : "text-gray-500"}`}>Inscriptions</button>
+            <button onClick={() => setTab("history")} className={`flex-1 py-1.5 rounded-md text-sm font-medium ${tab === "history" ? "bg-white shadow text-indigo-600" : "text-gray-500"}`}>Historique de présence</button>
           </div>
         </div>
 
@@ -1046,30 +1191,30 @@ function SessionPanel(p: PanelProps) {
             active.length === 0 ? (
               <div className="text-center text-gray-400 py-16">
                 <div className="text-4xl mb-2">📭</div>
-                No registrations yet
+                Aucune inscription pour le moment
               </div>
             ) : (
               <>
                 <button onClick={() => p.onCheckInAll(session.id)} className="mb-3 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700">
-                  ✓ Check in all
+                  ✓ Pointer tout le monde
                 </button>
                 <div className="border border-gray-100 rounded-lg overflow-hidden">
                   <div className="grid grid-cols-[1fr_auto] gap-2 px-3 py-2 bg-gray-50 text-[11px] font-semibold text-gray-400 uppercase">
-                    <span>Member</span><span>Status</span>
+                    <span>Membre</span><span>Statut</span>
                   </div>
                   {regs.map((r) => (
                     <div key={r.id} className="grid grid-cols-[1fr_auto] gap-2 items-center px-3 py-2.5 border-t border-gray-100">
                       <div>
                         <div className="text-sm font-medium">{r.memberName}</div>
-                        <div className="text-[11px] text-gray-400">Registered {r.registeredAt}</div>
+                        <div className="text-[11px] text-gray-400">Inscrit le {r.registeredAt}</div>
                       </div>
                       <div className="flex items-center gap-2">
                         {r.status === "cancelled" ? (
-                          <span className="px-2 py-0.5 rounded-full text-[11px] bg-gray-100 text-gray-400">Cancelled</span>
+                          <span className="px-2 py-0.5 rounded-full text-[11px] bg-gray-100 text-gray-400">Annulé</span>
                         ) : r.status === "checked_in" ? (
-                          <button onClick={() => p.onToggleCheckIn(r.id)} className="px-2 py-0.5 rounded-full text-[11px] bg-emerald-100 text-emerald-700 font-medium">✓ Checked in</button>
+                          <button onClick={() => p.onToggleCheckIn(r.id)} className="px-2 py-0.5 rounded-full text-[11px] bg-emerald-100 text-emerald-700 font-medium">✓ Présent</button>
                         ) : (
-                          <button onClick={() => p.onToggleCheckIn(r.id)} className="px-2.5 py-1 rounded-lg text-[11px] border border-gray-300 hover:bg-gray-50 font-medium">Check in</button>
+                          <button onClick={() => p.onToggleCheckIn(r.id)} className="px-2.5 py-1 rounded-lg text-[11px] border border-gray-300 hover:bg-gray-50 font-medium">Pointer</button>
                         )}
                       </div>
                     </div>
@@ -1079,16 +1224,16 @@ function SessionPanel(p: PanelProps) {
             )
           ) : (
             historyRows.length === 0 ? (
-              <div className="text-center text-gray-400 py-16">No past sessions yet</div>
+              <div className="text-center text-gray-400 py-16">Aucune séance passée pour le moment</div>
             ) : (
               <>
                 <div className="border border-gray-100 rounded-lg overflow-hidden">
                   <div className="grid grid-cols-4 gap-1 px-3 py-2 bg-gray-50 text-[11px] font-semibold text-gray-400 uppercase">
-                    <span>Date</span><span className="text-center">Reg.</span><span className="text-center">In</span><span className="text-center">Absent</span>
+                    <span>Date</span><span className="text-center">Inscr.</span><span className="text-center">Présents</span><span className="text-center">Absents</span>
                   </div>
                   {historyRows.map((row, i) => (
                     <div key={i} className="grid grid-cols-4 gap-1 px-3 py-2 border-t border-gray-100 text-sm">
-                      <span className="text-xs">{MONTHS[row.date.getMonth()]} {row.date.getDate()}</span>
+                      <span className="text-xs">{row.date.getDate()} {MONTHS[row.date.getMonth()]}</span>
                       <span className="text-center">{row.registered}</span>
                       <span className="text-center text-emerald-600 font-medium">{row.checkedIn}</span>
                       <span className="text-center text-rose-500">{row.absent}</span>
@@ -1097,9 +1242,9 @@ function SessionPanel(p: PanelProps) {
                 </div>
                 <div className="mt-4 p-3 bg-indigo-50 rounded-lg text-sm">
                   {historyRows.length <= 1 ? (
-                    <p className="text-gray-600">{historyRows.length} past session · Not enough history yet for averages</p>
+                    <p className="text-gray-600">{historyRows.length} séance passée · Pas assez d&apos;historique pour une moyenne</p>
                   ) : (
-                    <p className="font-semibold text-indigo-700">{historyRows.length} sessions · Avg. {avg}% attendance</p>
+                    <p className="font-semibold text-indigo-700">{historyRows.length} séances · {avg}% de présence en moyenne</p>
                   )}
                 </div>
               </>
