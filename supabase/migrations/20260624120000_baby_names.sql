@@ -75,7 +75,7 @@ insert into baby_names (name, gender, origin, meaning, style) values
 ('Solène', 'F', 'Latin', 'Solennelle, sacrée', 'original'),
 ('Azalée', 'F', 'Grec', 'Fleur sèche', 'original'),
 ('Noor', 'F', 'Arabe', 'Lumière', 'original'),
-('Sasha', 'F', 'Grec', 'Défenseuse de l''humanité', 'original'),
+('Sasha', 'F', 'Grec', 'Défenseuse de humanité', 'original'),
 ('Lena', 'F', 'Grec', 'Lumière', 'original'),
 ('Wren', 'F', 'Anglais', 'Petit oiseau', 'original'),
 ('Maia', 'F', 'Grec', 'Grande, mère', 'original'),
@@ -94,6 +94,6 @@ insert into baby_names (name, gender, origin, meaning, style) values
 
 -- Mixtes originaux
 ('Remy', 'MF', 'Latin', 'Rameur, de Reims', 'original'),
-('Sacha', 'MF', 'Grec', 'Défenseur de l''humanité', 'original'),
+('Sacha', 'MF', 'Grec', 'Défenseur de humanité', 'original'),
 ('Ari', 'MF', 'Hébreu', 'Lion de Dieu', 'original'),
 ('River', 'MF', 'Anglais', 'Rivière', 'original');
