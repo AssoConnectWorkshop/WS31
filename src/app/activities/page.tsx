@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
 
 /* ----------------------------------------------------------------------------
@@ -274,7 +273,7 @@ function Chevron({ open }: { open: boolean }) {
 export default function ActivityScheduler() {
   const [activities, setActivities] = useState<Activity[]>(MOCK_ACTIVITIES);
   const [registrations, setRegistrations] = useState<Registration[]>(INITIAL_REGS);
-  const [view, setView] = useState<"calendar" | "create">("calendar");
+  const [view, setView] = useState<"list" | "calendar" | "create">("list");
   const [calendarMode, setCalendarMode] = useState<"week" | "month">("week");
   const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -369,25 +368,27 @@ export default function ActivityScheduler() {
       {/* Top nav */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3">
-          <span className="font-bold text-lg mr-2">🏛️ NPO Admin</span>
-          <div className="flex items-center bg-gray-100 rounded-full p-0.5 text-xs font-semibold mr-1">
-            <span className="px-2.5 py-1 rounded-full bg-white shadow-sm text-indigo-600">🛠 Admin</span>
-            <Link href="/explore" className="px-2.5 py-1 rounded-full text-gray-500">🤸 Membre</Link>
-          </div>
+          <span className="font-bold text-lg mr-auto">🏛️ NPO Admin</span>
           <nav className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            <button
+              onClick={() => setView("list")}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${view === "list" ? "bg-white shadow text-indigo-600" : "text-gray-500"}`}
+            >
+              ☰ Vue liste
+            </button>
             <button
               onClick={() => setView("calendar")}
               className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${view === "calendar" ? "bg-white shadow text-indigo-600" : "text-gray-500"}`}
             >
-              📅 Calendar
-            </button>
-            <button
-              onClick={() => { setView("create"); setForm(EMPTY_FORM); setErrors({}); }}
-              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${view === "create" ? "bg-white shadow text-indigo-600" : "text-gray-500"}`}
-            >
-              ➕ Create activity
+              📅 Vue calendrier
             </button>
           </nav>
+          <button
+            onClick={() => { setView("create"); setForm(EMPTY_FORM); setErrors({}); }}
+            className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors"
+          >
+            ➕ Créer une activité
+          </button>
         </div>
       </header>
 
@@ -401,9 +402,18 @@ export default function ActivityScheduler() {
           onToggleDay={toggleDay}
           onToggleRules={() => setRulesOpen((v) => !v)}
           onFinish={handleFinish}
-          onCancel={() => { setForm(EMPTY_FORM); setErrors({}); setView("calendar"); }}
+          onCancel={() => { setForm(EMPTY_FORM); setErrors({}); setView("list"); }}
           onReset={() => { setForm(EMPTY_FORM); setErrors({}); }}
-          onGoCalendar={() => { setView("calendar"); }}
+          onGoCalendar={() => { setView("list"); }}
+        />
+      ) : view === "list" ? (
+        <ListView
+          activities={activities}
+          sessions={sessions}
+          registrations={registrations}
+          actById={actById}
+          spotsLeft={spotsLeft}
+          onSelectSession={setSelectedSessionId}
         />
       ) : (
         <CalendarView
@@ -642,6 +652,134 @@ function CreateView(p: CreateProps) {
           <button onClick={p.onFinish} className="px-5 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700">Finish</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------------------
+ * List view
+ * --------------------------------------------------------------------------*/
+interface ListViewProps {
+  activities: Activity[];
+  sessions: SessionT[];
+  registrations: Registration[];
+  actById: Record<string, Activity>;
+  spotsLeft: (s: SessionT) => number;
+  onSelectSession: (id: string) => void;
+}
+
+function ListView(p: ListViewProps) {
+  const today = new Date();
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+      {p.activities.length === 0 && (
+        <div className="text-center text-gray-400 py-24 text-sm">
+          No activities yet. Click &ldquo;Créer une activité&rdquo; to get started.
+        </div>
+      )}
+      {p.activities.map((a) => {
+        const actSessions = p.sessions
+          .filter((s) => s.activityId === a.id)
+          .sort((x, y) => x.date.getTime() - y.date.getTime());
+        const upcoming = actSessions.filter((s) => s.date >= today).slice(0, 5);
+        const past = actSessions.filter((s) => s.date < today).slice(-3).reverse();
+
+        const regCount = p.registrations.filter(
+          (r) => actSessions.some((s) => s.id === r.sessionId) && r.status !== "cancelled"
+        ).length;
+
+        return (
+          <div key={a.id} className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+            {/* Activity header */}
+            <div className={`px-5 py-4 flex items-start justify-between border-b border-gray-100 ${TYPE_STYLES[a.type].block}`}>
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`w-2.5 h-2.5 rounded-full ${TYPE_STYLES[a.type].dot}`} />
+                  <h2 className="font-bold text-lg">{a.name}</h2>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${TYPE_STYLES[a.type].chip}`}>{a.type}</span>
+                </div>
+                <p className="text-sm text-gray-600">
+                  {a.days.map((d) => DAY_SHORT[d]).join(", ")} · {a.startTime}–{a.endTime} · {a.recurrence}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {fmtDateStr(a.startDate)} → {fmtDateStr(a.endDate)} · {a.spots} spots · {a.price > 0 ? `${a.price}€` : "Free"}
+                </p>
+              </div>
+              <div className="text-right shrink-0 ml-4">
+                <div className="text-2xl font-extrabold text-gray-700">{actSessions.length}</div>
+                <div className="text-xs text-gray-400">sessions</div>
+                <div className="text-xs text-gray-500 mt-1">{regCount} registrations</div>
+              </div>
+            </div>
+
+            {/* Upcoming sessions */}
+            {upcoming.length > 0 && (
+              <div className="px-5 py-4">
+                <h3 className="text-xs font-bold text-gray-400 uppercase mb-2">Upcoming sessions</h3>
+                <div className="space-y-1.5">
+                  {upcoming.map((s) => {
+                    const left = p.spotsLeft(s);
+                    const full = left <= 0;
+                    const regs = p.registrations.filter((r) => r.sessionId === s.id && r.status !== "cancelled");
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => p.onSelectSession(s.id)}
+                        className="w-full flex items-center justify-between bg-gray-50 hover:bg-gray-100 rounded-xl px-3 py-2.5 text-left transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`w-2 h-2 rounded-full ${full ? "bg-gray-300" : TYPE_STYLES[a.type].dot}`} />
+                          <div>
+                            <p className="text-sm font-semibold">{fmtDate(s.date)}</p>
+                            <p className="text-xs text-gray-400">{a.startTime}–{a.endTime}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <p className="text-sm font-semibold">{regs.length}/{a.spots}</p>
+                            <p className="text-xs text-gray-400">{full ? "Full" : `${left} left`}</p>
+                          </div>
+                          <svg className="w-4 h-4 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.17 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+                          </svg>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Past sessions summary */}
+            {past.length > 0 && (
+              <div className="px-5 pb-4 border-t border-gray-100 pt-4">
+                <h3 className="text-xs font-bold text-gray-400 uppercase mb-2">Recent past sessions</h3>
+                <div className="flex gap-2 flex-wrap">
+                  {past.map((s) => {
+                    const regs = p.registrations.filter((r) => r.sessionId === s.id && r.status !== "cancelled");
+                    const ci = regs.filter((r) => r.status === "checked_in").length;
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => p.onSelectSession(s.id)}
+                        className="flex items-center gap-2 bg-gray-50 hover:bg-gray-100 rounded-lg px-3 py-2 text-xs transition-colors"
+                      >
+                        <span className="text-gray-500">{MONTHS[s.date.getMonth()]} {s.date.getDate()}</span>
+                        <span className="font-semibold text-emerald-600">{ci}/{regs.length} ✓</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {upcoming.length === 0 && past.length === 0 && (
+              <div className="px-5 py-4 text-sm text-gray-400">No sessions generated yet.</div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
