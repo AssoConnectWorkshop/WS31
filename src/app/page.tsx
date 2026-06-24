@@ -48,10 +48,10 @@ export default async function Home() {
       </div>
 
       <Link
-        href="/prenoms"
-        className="px-6 py-3 bg-violet-600 text-white rounded-full font-semibold shadow-md hover:bg-violet-700 transition-colors"
+        href="/activities"
+        className="px-6 py-3 bg-indigo-600 text-white rounded-full font-semibold shadow-md hover:bg-indigo-700 transition-colors"
       >
-        👶 Trouver un prénom
+        📅 Activity Scheduler
       </Link>
 
       <div className="flex flex-col gap-6 w-full max-w-md">
