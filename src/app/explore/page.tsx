@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   ACTIVITIES,
@@ -85,7 +86,10 @@ export default function ExplorePage() {
             <h1 className="text-2xl font-extrabold tracking-tight">
               {tab === "explore" ? "Activités" : "Mes réservations"}
             </h1>
-            <span className="text-2xl">🤸</span>
+            <div className="flex items-center bg-gray-100 rounded-full p-0.5 text-xs font-semibold">
+              <span className="px-2.5 py-1 rounded-full bg-white shadow-sm text-rose-500">🤸 Membre</span>
+              <Link href="/activities" className="px-2.5 py-1 rounded-full text-gray-500">🛠 Admin</Link>
+            </div>
           </div>
 
           {tab === "explore" && (

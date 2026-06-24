@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 /* ----------------------------------------------------------------------------
@@ -369,6 +370,10 @@ export default function ActivityScheduler() {
       <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3">
           <span className="font-bold text-lg mr-2">🏛️ NPO Admin</span>
+          <div className="flex items-center bg-gray-100 rounded-full p-0.5 text-xs font-semibold mr-1">
+            <span className="px-2.5 py-1 rounded-full bg-white shadow-sm text-indigo-600">🛠 Admin</span>
+            <Link href="/explore" className="px-2.5 py-1 rounded-full text-gray-500">🤸 Membre</Link>
+          </div>
           <nav className="flex gap-1 bg-gray-100 rounded-lg p-1">
             <button
               onClick={() => setView("calendar")}
