@@ -203,7 +203,7 @@ export default function PrenomsClient({ names }: { names: BabyName[] }) {
 
                 <div className="text-center">
                   <p className="text-gray-500 text-sm font-medium">{current.origin}</p>
-                  <p className="text-gray-700 mt-1 italic">"{current.meaning}"</p>
+                  <p className="text-gray-700 mt-1 italic">&ldquo;{current.meaning}&rdquo;</p>
                 </div>
 
                 <span
